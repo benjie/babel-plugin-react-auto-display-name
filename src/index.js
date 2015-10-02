@@ -1,10 +1,10 @@
 export default function ({ Plugin, types: t }) {
   function buildDisplayName(filename) {
     return filename
-      .replace(/^.*!([^!]+)$/, "$1")
+      .replace(/^.*!([^!]+)$/, "$1") // Remove webpack stuff
       .replace(/(.*)components/, '')
       .replace(/^\//, '')
-      .replace('.js', '')
+      .replace(/\.[a-z]+$/, '') // Remove extension
       .replace(/\/index$/, '')
       .replace(/\//g, '.');
   }
