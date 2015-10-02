@@ -1,6 +1,7 @@
 export default function ({ Plugin, types: t }) {
   function buildDisplayName(filename) {
     return filename
+      .replace(/^.*!([^!]+)$/, "$1")
       .replace(/(.*)components/, '')
       .replace(/^\//, '')
       .replace('.js', '')
@@ -57,8 +58,8 @@ export default function ({ Plugin, types: t }) {
         }
       },
 
-      "AssignmentExpression|Property|VariableDeclarator"(node) {
-        var left, right;
+      "AssignmentExpression|Property|VariableDeclarator"(node, parent, scope, file) {
+        var left, right, filename;
 
         if (t.isAssignmentExpression(node)) {
           left = node.left;
@@ -72,11 +73,15 @@ export default function ({ Plugin, types: t }) {
         }
 
         if (t.isMemberExpression(left)) {
+          if (left.object.name == 'module' && left.property.name == 'exports') {
+            filename = file.opts.filename;
+          }
           left = left.property;
         }
 
         if (t.isIdentifier(left) && isCreateClass(right)) {
-          addDisplayName(left.name, right);
+          filename = filename || left.name;
+          addDisplayName(filename, right);
         }
       }
     }
