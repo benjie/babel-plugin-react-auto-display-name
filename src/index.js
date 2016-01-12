@@ -1,3 +1,5 @@
+import path from "path";
+
 export default function ({ types: t }) {
   function buildDisplayName(filename) {
     return filename
@@ -8,14 +10,13 @@ export default function ({ types: t }) {
       .replace(/\/index$/, '')
       .replace(/\//g, '.');
   }
-
   function addDisplayName(id, call) {
-    var props = call.arguments[0].properties;
-    var safe = true;
+    let props = call.arguments[0].properties;
+    let safe = true;
 
-    for (var i = 0; i < props.length; i++) {
-      var prop = props[i];
-      var key = t.toComputedKey(prop);
+    for (let i = 0; i < props.length; i++) {
+      let prop = props[i];
+      let key = t.toComputedKey(prop);
       if (t.isLiteral(key, { value: "displayName" })) {
         safe = false;
         break;
@@ -23,11 +24,11 @@ export default function ({ types: t }) {
     }
 
     if (safe) {
-      props.unshift(t.property("init", t.identifier("displayName"), t.literal(buildDisplayName(id))));
+      props.unshift(t.objectProperty(t.identifier("displayName"), t.stringLiteral(buildDisplayName(id))));
     }
   }
 
-  var isCreateClassCallExpression = t.buildMatchMemberExpression("React.createClass");
+  let isCreateClassCallExpression = t.buildMatchMemberExpression("React.createClass");
 
   function isCreateClass(node) {
     if (!node || !t.isCallExpression(node)) return false;
@@ -36,11 +37,11 @@ export default function ({ types: t }) {
     if (!isCreateClassCallExpression(node.callee)) return false;
 
     // no call arguments
-    var args = node.arguments;
+    let args = node.arguments;
     if (args.length !== 1) return false;
 
     // first node arg is not an object
-    var first = args[0];
+    let first = args[0];
     if (!t.isObjectExpression(first)) return false;
 
     return true;
@@ -48,36 +49,58 @@ export default function ({ types: t }) {
 
   return {
     visitor: {
-      ExportDefaultDeclaration(node, parent, scope, file) {
+      ExportDefaultDeclaration({ node }, state) {
         if (isCreateClass(node.declaration)) {
-          addDisplayName(file.opts.filename, node.declaration);
+          let displayName = state.file.opts.basename;
+
+          // ./{module name}/index.js
+          if (displayName === "index") {
+            displayName = path.basename(path.dirname(state.file.opts.filename));
+          }
+
+          addDisplayName(displayName, node.declaration);
         }
       },
 
-      "AssignmentExpression|Property|VariableDeclarator"(node, parent, scope, file) {
-        var left, right, filename;
+      CallExpression(path, state) {
+        let { node } = path;
+        if (!isCreateClass(node)) return;
 
-        if (t.isAssignmentExpression(node)) {
-          left = node.left;
-          right = node.right;
-        } else if (t.isProperty(node)) {
-          left = node.key;
-          right = node.value;
-        } else if (t.isVariableDeclarator(node)) {
-          left = node.id;
-          right = node.init;
-        }
+        let id;
 
-        if (t.isMemberExpression(left)) {
-          if (left.object.name == 'module' && left.property.name == 'exports') {
-            filename = file.opts.filename;
+        // crawl up the ancestry looking for possible candidates for displayName inference
+        path.find(function (path) {
+          if (path.isAssignmentExpression()) {
+            id = path.node.left;
+          } else if (path.isObjectProperty()) {
+            id = path.node.key;
+          } else if (path.isVariableDeclarator()) {
+            id = path.node.id;
+          } else if (path.isStatement()) {
+            // we've hit a statement, we should stop crawling up
+            return true;
           }
-          left = left.property;
+
+          // we've got an id! no need to continue
+          if (id) return true;
+        });
+
+        // ensure that we have an identifier we can inherit from
+        if (!id) return;
+
+        // foo.bar -> bar
+        let filename = null;
+        if (t.isMemberExpression(id)) {
+          if (id.object.name == 'module' && id.property.name == 'exports') {
+            filename = state.file.opts.filename;
+          } else {
+            id = left.property;
+          }
         }
 
-        if (t.isIdentifier(left) && isCreateClass(right)) {
-          filename = filename || left.name;
-          addDisplayName(filename, right);
+        // identifiers are the only thing we can reliably get a name from
+        if (filename || t.isIdentifier(id)) {
+          addDisplayName(filename || id.name, node);
         }
       }
     }
